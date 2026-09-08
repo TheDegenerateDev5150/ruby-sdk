@@ -940,6 +940,26 @@ module MCP
         assert_equal({ "result" => { "tools" => [] } }, response)
       end
 
+      def test_send_request_parses_a_json_body_with_a_parser_taking_keyword_options_only
+        # json 3.0 accepts parser options as keywords only, and Faraday's json response middleware
+        # passes them as a positional Hash, which Ruby 3 no longer converts. The stand-in parser has
+        # the json 3.0 signature, so the body must reach `JSON.parse` through the client's own call.
+        stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+          stub.post("/") do
+            [200, { "Content-Type" => "application/json" }, { result: { tools: [] } }.to_json]
+          end
+        end
+        client = HTTP.new(url: url) { |faraday| faraday.adapter(:test, stubs) }
+        parse = JSON.method(:parse)
+        keyword_options_only_parse = ->(source, **options) { parse.call(source, **options) }
+
+        response = JSON.stub(:parse, keyword_options_only_parse) do
+          client.send_request(request: { jsonrpc: "2.0", id: "test_id", method: "tools/list" })
+        end
+
+        assert_equal({ "result" => { "tools" => [] } }, response)
+      end
+
       def test_send_request_mirrors_x_mcp_header_params_into_mcp_param_headers
         # SEP-2243: on a modern connection, `tools/list` teaches the transport the `x-mcp-header`
         # declarations, and the following `tools/call` mirrors the annotated arguments into
