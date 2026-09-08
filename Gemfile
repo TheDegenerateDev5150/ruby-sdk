@@ -19,6 +19,9 @@ gem "activesupport"
 gem "debug" if RUBY_VERSION >= "3.1"
 # Avoid i18n 1.15.0, which breaks on Ruby 3.1 (ruby-i18n/i18n#735).
 gem "i18n", "!= 1.15.0"
+# FIXME: Drop this once a json release includes https://github.com/ruby/json/pull/1072. json 3.0.0 and 3.0.1
+# forward arguments after a leading parameter, syntax Ruby 2.7.3 was the first to parse, while allowing Ruby 2.7.0.
+gem "json", "< 3" if RUBY_VERSION < "2.7.3"
 gem "rake", "~> 13.0"
 gem "sorbet-static-and-runtime" if RUBY_VERSION >= "3.0"
 gem "yard", "~> 0.9"

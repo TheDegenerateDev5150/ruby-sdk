@@ -723,7 +723,8 @@ module MCP
         require_faraday!
         @client ||= Faraday.new(url) do |faraday|
           faraday.request(:json)
-          faraday.response(:json)
+          # The client parses response bodies itself (`resolve_response_body`), so streamed and buffered responses
+          # take the same path; Faraday's json response middleware is deliberately left out.
           faraday.response(:raise_error)
 
           faraday.headers["Accept"] = ACCEPT_HEADER
@@ -1074,8 +1075,8 @@ module MCP
         elsif content_type&.include?("application/json")
           return parse_json_buffer(stream.buffer, method, params) unless stream.buffer.empty?
 
-          # Adapters without `on_data` support deliver the body via `response.body`,
-          # already parsed by the json response middleware.
+          # Adapters without `on_data` support deliver the body via `response.body`; a JSON middleware
+          # added by the Faraday customizer may have parsed it already.
           response.body.is_a?(String) ? parse_json_buffer(response.body, method, params) : response.body
         else
           raise RequestHandlerError.new(
