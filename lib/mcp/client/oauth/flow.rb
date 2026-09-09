@@ -997,9 +997,9 @@ module MCP
           post_to_token_endpoint(as_metadata: as_metadata, client_info: client_info, form: form)
         end
 
-        # Submits a form-encoded request to the token endpoint, applying
-        # the client authentication method advertised in `client_information` and
-        # adding `client_id` (and `client_secret` when not using HTTP Basic).
+        # Submits a form-encoded token request using the authentication method
+        # stored in `client_information`. The method determines whether client
+        # credentials belong in the form body, a Basic header, or a JWT assertion.
         def post_to_token_endpoint(as_metadata:, client_info:, form:)
           client_id = client_info_required_value(client_info, "client_id")
           unless client_id
@@ -1010,12 +1010,13 @@ module MCP
           client_secret = client_info_required_value(client_info, "client_secret")
           token_endpoint_auth_method = client_info_value(client_info, "token_endpoint_auth_method")
 
-          form = if token_endpoint_auth_method == "private_key_jwt"
-            # RFC 7523 Section 2.2 JWT client assertion for the `private_key_jwt` method of
-            # the `io.modelcontextprotocol/oauth-client-credentials` extension (SEP-1046).
-            # The client identity travels in the assertion's `iss`/`sub` claims, so `client_id` is
-            # omitted from the body per RFC 7521 Section 4.2 (the `client_assertion` conveys the client identity).
-            # The audience is the issuer identifier that `ensure_issuer_matches!` already byte-validated.
+          # Apply one client authentication method per request (RFC 6749 Section 2.3).
+          headers = {}
+          form = case token_endpoint_auth_method
+          when "private_key_jwt"
+            # The assertion identifies the client through its `iss` and `sub`
+            # claims, so the body needs no separate `client_id` (RFC 7521 Section 4.2).
+            # Use the issuer already checked by `ensure_issuer_matches!` as the audience.
             unless @provider.respond_to?(:client_assertion)
               raise AuthorizationError,
                 "token_endpoint_auth_method is private_key_jwt but the provider does not " \
@@ -1026,22 +1027,24 @@ module MCP
               "client_assertion_type" => JWTClientAssertion::ASSERTION_TYPE,
               "client_assertion" => @provider.client_assertion(audience: as_metadata["issuer"]),
             )
+          when "client_secret_post"
+            # Send the client ID and available secret in the form body.
+            body = form.merge("client_id" => client_id)
+            body["client_secret"] = client_secret if client_secret
+            body
           else
-            form.merge("client_id" => client_id)
-          end
-
-          headers = {}
-          if client_secret
-            case token_endpoint_auth_method
-            when "client_secret_post"
-              form["client_secret"] = client_secret
-            when "none"
-              # Public client; no credential.
-            else
-              # RFC 6749 §2.3.1 recommends Basic for confidential clients and
-              # both Python and TypeScript SDKs default here when
-              # the authentication method is not explicitly stored.
+            if client_secret && token_endpoint_auth_method != "none"
+              # Basic is also the fallback when a secret is present but no method
+              # is stored. A body `client_id` is optional (RFC 6749 Section 3.2.1);
+              # omit it because some servers treat it alongside Basic as a second
+              # authentication method and reject the request with `invalid_request`.
               headers["Authorization"] = "Basic " + basic_auth_credentials(client_id, client_secret)
+              form
+            else
+              # With `none` or no secret, identify the client using `client_id`.
+              # This is required for unauthenticated authorization-code exchanges
+              # (RFC 6749 Section 3.2.1).
+              form.merge("client_id" => client_id)
             end
           end
 
