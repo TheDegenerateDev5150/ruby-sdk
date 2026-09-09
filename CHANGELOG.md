@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-09
+
+This release keeps the HTTP client working with json 3.0. That release accepts the options of `JSON.parse`
+as keywords only, and Faraday's JSON response middleware, through 2.14.3, passes them as a positional Hash,
+which Ruby 3 no longer converts, so every JSON body the client received failed as an internal error.
+The client now parses response bodies itself, the way it already handled streamed ones, and no longer
+registers the middleware. A malformed JSON body delivered whole by an adapter without streaming support
+now raises `RequestHandlerError` with `error_type: :parse_error`, as the streamed path already did.
+
+### Fixed
+
+- Parse HTTP client response bodies without Faraday's JSON middleware, which json 3.0 breaks (#546)
+
 ## [1.5.0] - 2026-09-05
 
 This release makes the client answer a server's `ping` with the empty result the specification requires.
