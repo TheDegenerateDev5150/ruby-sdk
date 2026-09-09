@@ -158,6 +158,21 @@ module MCP
           end
         end
 
+        def test_run_client_credentials_with_client_secret_basic_omits_client_id_from_body
+          # Explicit Basic authentication must keep both credentials in the header
+          # to avoid servers treating body credentials as a second auth method.
+          provider = client_credentials_provider(token_endpoint_auth_method: "client_secret_basic")
+
+          Flow.new(provider: provider).run!(server_url: @server_url, resource_metadata_url: @prm_url)
+
+          assert_requested(:post, "#{@auth_base}/token") do |req|
+            form = URI.decode_www_form(req.body).to_h
+            req.headers["Authorization"] == "Basic " + Base64.strict_encode64("cc-client:cc-secret") &&
+              !form.key?("client_id") &&
+              !form.key?("client_secret")
+          end
+        end
+
         def test_run_client_credentials_raises_clean_error_when_client_information_missing
           # The constructor always stores credentials, but if a custom storage loses them
           # the grant must fail with a domain error rather than a `NoMethodError` from
@@ -1860,8 +1875,10 @@ module MCP
 
           expected = "Basic " + Base64.strict_encode64("pre-registered-client:pre-registered-secret")
           assert_requested(:post, "#{@auth_base}/token") do |req|
+            form = URI.decode_www_form(req.body).to_h
             req.headers["Authorization"] == expected &&
-              !URI.decode_www_form(req.body).to_h.key?("client_secret")
+              !form.key?("client_id") &&
+              !form.key?("client_secret")
           end
         end
 
@@ -2363,6 +2380,36 @@ module MCP
           assert_equal("fresh-at", provider.access_token)
           # New response did not include a refresh_token, so the old one is preserved (RFC 6749 Section 6).
           assert_equal("saved-rt", provider.tokens["refresh_token"])
+        end
+
+        def test_refresh_with_client_secret_basic_omits_client_id_from_body
+          # Stored credentials without an auth method default to Basic. Refresh
+          # must also omit the body `client_id` when using that fallback.
+          stub_request(:post, "#{@auth_base}/token")
+            .with(body: hash_including("grant_type" => "refresh_token"))
+            .to_return(
+              status: 200,
+              headers: { "Content-Type" => "application/json" },
+              body: JSON.generate(access_token: "fresh-at", token_type: "Bearer", expires_in: 3600),
+            )
+
+          provider = Provider.new(
+            client_metadata: { redirect_uris: ["http://localhost:0/callback"] },
+            redirect_uri: "http://localhost:0/callback",
+            redirect_handler: ->(_url) {},
+            callback_handler: -> { [nil, nil] },
+          )
+          provider.save_client_information("client_id" => "conf-client", "client_secret" => "conf-secret")
+          provider.save_tokens("access_token" => "stale-at", "refresh_token" => "saved-rt")
+
+          Flow.new(provider: provider).refresh!(server_url: @server_url, resource_metadata_url: @prm_url)
+
+          assert_requested(:post, "#{@auth_base}/token") do |req|
+            form = URI.decode_www_form(req.body).to_h
+            req.headers["Authorization"] == "Basic " + Base64.strict_encode64("conf-client:conf-secret") &&
+              !form.key?("client_id") &&
+              !form.key?("client_secret")
+          end
         end
 
         def test_run_records_the_issuer_that_minted_the_tokens
