@@ -59,6 +59,14 @@ The stdio transport automatically handles:
 - Spawning the server process with `Open3.popen3`
 - MCP protocol initialization handshake (`initialize` request + `notifications/initialized`)
 - JSON-RPC 2.0 message framing over newline-delimited JSON
+- Answering server `ping` requests; see [Answering Server Pings](/client/ping/#answering-server-pings)
+
+{: .note }
+> `ping` is the only server-to-client request answered over stdio. A wire-level `elicitation/create`
+> or `sampling/createMessage` is ignored on this transport, so a server that sends one waits for an answer
+> that never comes; use Streamable HTTP for those, as described below. The SEP-2322 `input_required` route,
+> which is how the modern lifecycle asks for the same input, works on every transport, so `on_elicitation`
+> and `on_sampling` handlers still fire over stdio; see [Multi Round-Trip Requests](/client/mrtr/).
 
 ## HTTP Transport Layer
 
